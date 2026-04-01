@@ -90,7 +90,7 @@ class GitHubRunnerMatrix
   sig { params(arch: Symbol).returns(LinuxRunnerSpec) }
   def linux_runner_spec(arch)
     linux_runner = case arch
-    when :arm64 then "ubuntu-22.04-arm"
+    when :arm64 then OS::LINUX_CI_ARM_RUNNER
     when :x86_64 then ENV.fetch("HOMEBREW_LINUX_RUNNER", "ubuntu-latest")
     else raise "Unknown Linux architecture: #{arch}"
     end
@@ -99,7 +99,7 @@ class GitHubRunnerMatrix
       name:      "Linux #{arch}",
       runner:    linux_runner,
       container: {
-        image:   "ghcr.io/homebrew/ubuntu22.04:main",
+        image:   "ghcr.io/homebrew/brew:main",
         options: "--user=linuxbrew -e GITHUB_ACTIONS_HOMEBREW_SELF_HOSTED",
       },
       workdir:   "/github/home",
@@ -163,8 +163,8 @@ class GitHubRunnerMatrix
       @runners << create_runner(:linux, :arm64)
 
       x86_64_spec = MacOSRunnerSpec.new(
-        name:    "macOS 10.15 x86_64",
-        runner:  "10.15-#{github_run_id}",
+        name:    "macOS 10.15-cross x86_64",
+        runner:  "10.15-cross-#{github_run_id}",
         timeout: GITHUB_ACTIONS_LONG_TIMEOUT,
         cleanup: true,
       )
@@ -173,7 +173,7 @@ class GitHubRunnerMatrix
 
       # odisabled: remove support for Big Sur September (or later) 2027
       arm64_spec = MacOSRunnerSpec.new(
-        name:    "macOS 11-arm64-cross",
+        name:    "macOS 11-cross arm64",
         runner:  "11-arm64-cross-#{github_run_id}",
         timeout: GITHUB_ACTIONS_LONG_TIMEOUT,
         cleanup: true,

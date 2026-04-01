@@ -2,20 +2,19 @@
 # frozen_string_literal: true
 
 require "bundle/dsl"
-require "bundle/formula_installer"
-require "bundle/cask_installer"
-require "bundle/mac_app_store_installer"
-require "bundle/vscode_extension_installer"
-require "bundle/go_installer"
-require "bundle/cargo_installer"
-require "bundle/uv_installer"
-require "bundle/flatpak_installer"
-require "bundle/tap_installer"
+require "bundle/package_types"
 require "bundle/skipper"
 
 module Homebrew
   module Bundle
     module Installer
+      class InstallableEntry < T::Struct
+        const :name, String
+        const :options, Homebrew::Bundle::EntryOptions
+        const :verb, String
+        const :cls, T.class_of(Homebrew::Bundle::PackageType)
+      end
+
       sig {
         params(
           entries:    T::Array[Dsl::Entry],
@@ -37,42 +36,12 @@ module Homebrew
           next if Homebrew::Bundle::Skipper.skip? entry
 
           name = entry.name
-          args = [name]
-          options = {}
-          verb = "Installing"
+          options = entry.options
           type = entry.type
-          cls = case type
-          when :brew
-            options = entry.options
-            verb = "Upgrading" if Homebrew::Bundle::FormulaInstaller.formula_upgradable?(name)
-            Homebrew::Bundle::FormulaInstaller
-          when :cask
-            options = entry.options
-            verb = "Upgrading" if Homebrew::Bundle::CaskInstaller.cask_upgradable?(name)
-            Homebrew::Bundle::CaskInstaller
-          when :mas
-            args << entry.options[:id]
-            Homebrew::Bundle::MacAppStoreInstaller
-          when :vscode
-            Homebrew::Bundle::VscodeExtensionInstaller
-          when :go
-            Homebrew::Bundle::GoInstaller
-          when :cargo
-            Homebrew::Bundle::CargoInstaller
-          when :uv
-            options = entry.options
-            Homebrew::Bundle::UvInstaller
-          when :flatpak
-            options = entry.options
-            Homebrew::Bundle::FlatpakInstaller
-          when :tap
-            verb = "Tapping"
-            options = entry.options
-            Homebrew::Bundle::TapInstaller
-          end
-          next if cls.nil?
+          cls = Homebrew::Bundle.installable(type)
+          next if cls.nil? || !cls.install_supported?
 
-          { name:, args:, options:, verb:, type:, cls: }
+          InstallableEntry.new(name:, options:, verb: cls.install_verb(name, options), cls:)
         end
 
         if (fetchable_names = fetchable_formulae_and_casks(installable_entries, no_upgrade:).presence)
@@ -85,13 +54,12 @@ module Homebrew
         end
 
         installable_entries.each do |entry|
-          name = entry.fetch(:name)
-          args = entry.fetch(:args)
-          options = entry.fetch(:options)
-          verb = entry.fetch(:verb)
-          cls = entry.fetch(:cls)
+          name = entry.name
+          options = entry.options
+          verb = entry.verb
+          cls = entry.cls
 
-          preinstall = if cls.preinstall!(*args, **options, no_upgrade:, verbose:)
+          preinstall = if cls.preinstall!(name, **options, no_upgrade:, verbose:)
             puts Formatter.success("#{verb} #{name}")
             true
           else
@@ -99,7 +67,7 @@ module Homebrew
             false
           end
 
-          if cls.install!(*args, **options,
+          if cls.install!(name, **options,
                          preinstall:, no_upgrade:, verbose:, force:)
             success += 1
           else
@@ -126,42 +94,14 @@ module Homebrew
 
       sig {
         params(
-          entries:    T::Array[{ name:    String,
-                                 args:    T::Array[T.anything],
-                                 options: T::Hash[Symbol, T.untyped],
-                                 verb:    String,
-                                 type:    Symbol,
-                                 cls:     T::Module[T.anything] }],
+          entries:    T::Array[InstallableEntry],
           no_upgrade: T::Boolean,
         ).returns(T::Array[String])
       }
       def self.fetchable_formulae_and_casks(entries, no_upgrade:)
         entries.filter_map do |entry|
-          name = entry.fetch(:name)
-          options = entry.fetch(:options)
-
-          case entry.fetch(:type)
-          when :brew
-            next unless tap_installed?(name)
-            next if Homebrew::Bundle::FormulaInstaller.formula_installed_and_up_to_date?(name, no_upgrade:)
-
-            name
-          when :cask
-            full_name = options.fetch(:full_name, name)
-            next unless tap_installed?(full_name)
-            next unless Homebrew::Bundle::CaskInstaller.installable_or_upgradable?(name, no_upgrade:, **options)
-
-            full_name
-          end
+          entry.cls.fetchable_name(entry.name, entry.options, no_upgrade:)
         end
-      end
-
-      sig { params(package_full_name: String).returns(T::Boolean) }
-      def self.tap_installed?(package_full_name)
-        user, repository, = package_full_name.split("/", 3)
-        return true if user.blank? || repository.blank?
-
-        Homebrew::Bundle::TapInstaller.installed_taps.include?("#{user}/#{repository}")
       end
     end
   end

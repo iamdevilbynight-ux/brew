@@ -61,6 +61,7 @@ module Cask
       Artifact::ZshCompletion,
       Artifact::FishCompletion,
       Artifact::BashCompletion,
+      Artifact::GeneratedCompletion,
       Artifact::Uninstall,
       Artifact::Zap,
     ].freeze
@@ -555,6 +556,9 @@ module Cask
       @caveats
     end
 
+    sig { returns(DSL::Caveats) }
+    def caveats_object = @caveats
+
     # Asserts that the cask artifacts auto-update.
     #
     # @api public
@@ -593,6 +597,8 @@ module Cask
       if !@cask.allow_reassignment && @no_autobump_defined
         raise CaskInvalidError.new(cask, "'no_autobump_defined' stanza may only appear once.")
       end
+
+      odeprecated "no_autobump! because: :requires_manual_review" if because == :requires_manual_review
 
       @no_autobump_defined = true
       @no_autobump_message = because

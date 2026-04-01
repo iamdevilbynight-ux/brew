@@ -68,6 +68,7 @@ module Homebrew
 
       # Changes to this struct must be mirrored in Homebrew::API::Cask.generate_cask_struct_hash
       const :auto_updates, T::Boolean, default: false
+      const :caveats_rosetta, T::Boolean, default: false
       const :conflicts_with_args, T::Hash[Symbol, T::Array[String]], default: {}
       const :container_args, T::Hash[Symbol, T.any(Symbol, T.anything)], default: {}
       const :depends_on_args, DependsOnArgs, default: {}
@@ -158,18 +159,18 @@ module Homebrew
 
       # Format artifact args pairs into proper [key, args, kwargs, block] format since serialization removed blanks.
       sig {
-          params(
-            args: T.any(
-              [Symbol],
-              [Symbol, T::Array[T.anything]],
-              [Symbol, T::Hash[Symbol, T.anything]],
-              [Symbol, Symbol],
-              [Symbol, T::Array[T.anything], T::Hash[Symbol, T.anything]],
-              [Symbol, T::Array[T.anything], Symbol],
-              [Symbol, T::Hash[Symbol, T.anything], Symbol],
-              [Symbol, T::Array[T.anything], T::Hash[Symbol, T.anything], Symbol],
-            ),
-          ).returns(ArtifactArgs)
+        params(
+          args: T.any(
+            [Symbol],
+            [Symbol, T::Array[T.anything]],
+            [Symbol, T::Hash[Symbol, T.anything]],
+            [Symbol, Symbol],
+            [Symbol, T::Array[T.anything], T::Hash[Symbol, T.anything]],
+            [Symbol, T::Array[T.anything], Symbol],
+            [Symbol, T::Hash[Symbol, T.anything], Symbol],
+            [Symbol, T::Array[T.anything], T::Hash[Symbol, T.anything], Symbol],
+          ),
+        ).returns(ArtifactArgs)
       }
       def self.deserialize_artifact_args(args)
         case args

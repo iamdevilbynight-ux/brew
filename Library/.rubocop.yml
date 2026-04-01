@@ -22,7 +22,7 @@ inherit_mode:
 AllCops:
   # Only bump this after the first tagged brew release with a new Ruby version,
   # otherwise taps will be prompted to use newer Ruby syntax too early.
-  TargetRubyVersion: 3.4
+  TargetRubyVersion: 4.0
   NewCops: enable
   Include:
     - "**/*.rbi"
@@ -112,10 +112,6 @@ Layout/EndAlignment:
 Layout/HashAlignment:
   EnforcedHashRocketStyle: table
   EnforcedColonStyle: table
-
-# TODO: undisable when fixed: https://github.com/rubocop/rubocop/issues/14747
-Layout/IndentationWidth:
-  Enabled: false
 
 # Need to allow #: for external commands.
 Layout/LeadingCommentSpace:

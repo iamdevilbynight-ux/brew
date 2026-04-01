@@ -1,9 +1,10 @@
+# typed: false
 # frozen_string_literal: true
 
 require "bundle"
 require "bundle/brew_services"
 
-RSpec.describe Homebrew::Bundle::BrewServices do
+RSpec.describe Homebrew::Bundle::Brew::Services do
   describe ".started_services" do
     before do
       described_class.reset!
@@ -11,11 +12,35 @@ RSpec.describe Homebrew::Bundle::BrewServices do
 
     it "returns started services" do
       allow(Utils).to receive(:safe_popen_read).and_return <<~EOS
-        nginx  started  homebrew.mxcl.nginx.plist
-        apache stopped  homebrew.mxcl.apache.plist
-        mysql  started  homebrew.mxcl.mysql.plist
+        [
+          {
+            "name": "nginx",
+            "status": "started"
+          },
+          {
+            "name": "apache",
+            "status": "stopped"
+          },
+          {
+            "name": "mysql",
+            "status": "started"
+          }
+        ]
       EOS
       expect(described_class.started_services).to contain_exactly("nginx", "mysql")
+    end
+
+    it "returns empty array when no services exist" do
+      allow(Utils).to receive(:safe_popen_read).and_return("[]\n")
+      expect(described_class.started_services).to eq([])
+    end
+
+    it "exits with error when no daemon manager is available" do
+      allow(Homebrew::Services::System).to receive_messages(launchctl?: false, systemctl?: false)
+      expect do
+        described_class.started_services
+      end.to raise_error(SystemExit)
+        .and output(/supported only on macOS or Linux/).to_stderr
     end
   end
 

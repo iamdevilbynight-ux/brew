@@ -39,7 +39,7 @@ jobs:
           cask: false
 
       - name: Cache Bundler RubyGems
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: ${{ steps.set-up-homebrew.outputs.gems-path }}
           key: ${{ runner.os }}-rubygems-syntax-${{ steps.set-up-homebrew.outputs.gems-hash }}
@@ -52,9 +52,10 @@ jobs:
         uses: Homebrew/actions/cache-homebrew-prefix@main
         with:
           install: shellcheck shfmt
+          workflow-key: tests-syntax
 
       - name: Cache style cache
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: ~/.cache/Homebrew/style
           key: syntax-style-cache-${{ github.sha }}
@@ -92,7 +93,7 @@ jobs:
           cask: true
 
       - name: Cache Bundler RubyGems
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: ${{ steps.set-up-homebrew.outputs.gems-path }}
           key: ${{ runner.os }}-rubygems-tap-syntax-${{ steps.set-up-homebrew.outputs.gems-hash }}
@@ -102,7 +103,7 @@ jobs:
         run: brew install-bundler-gems --groups=style
 
       - name: Cache style cache
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: ~/Library/Caches/Homebrew/style
           key: tap-syntax-style-cache-${{ github.sha }}
@@ -182,7 +183,13 @@ jobs:
 
       - name: Check for uncommitted RubyGems
         working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}
-        run: git diff --stat --exit-code Library/Homebrew/vendor/bundle/ruby
+        run: |
+          git diff --stat --exit-code Library/Homebrew/vendor/bundle
+          if [ -n "$(git status --porcelain -- Library/Homebrew/vendor/bundle)" ]; then
+            echo "Untracked or unstaged files found:"
+            git status --porcelain -- Library/Homebrew/vendor/bundle
+            exit 1
+          fi
 
   update-test:
     name: ${{ matrix.name }}
@@ -242,7 +249,7 @@ jobs:
           cask: false
 
       - name: Cache Bundler RubyGems
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: ${{ steps.set-up-homebrew.outputs.gems-path }}
           key: ${{ matrix.runs-on }}-tests-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}
@@ -257,7 +264,7 @@ jobs:
         run: mkdir tests
 
       - name: Cache parallel tests log
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: tests
           key: ${{ runner.os }}-${{ matrix.test-flags }}-parallel_runtime_rspec-${{ github.sha }}
@@ -268,12 +275,14 @@ jobs:
         uses: Homebrew/actions/cache-homebrew-prefix@main
         with:
           install: subversion curl
+          workflow-key: tests-tests-online
 
       - name: Install brew tests macOS dependencies
         if: runner.os != 'Linux'
         uses: Homebrew/actions/cache-homebrew-prefix@main
         with:
           install: subversion gnupg
+          workflow-key: tests-tests-macos
           uninstall: true
 
         # brew tests doesn't like world writable directories
@@ -298,14 +307,15 @@ jobs:
           filenames=$(find Library/Homebrew/test/junit -name 'rspec*.xml' -print | tr '\n' ',')
           echo "filenames=${filenames%,}" >> "$GITHUB_OUTPUT"
 
-      - uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1.2.1
+      - uses: codecov/codecov-action@1af58845a975a7985b0beb0cbe6fbbb71a41dbad # v5.5.3
         with:
           working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}
           files: ${{ steps.junit_xml.outputs.filenames }}
           disable_search: true
           token: ${{ secrets.CODECOV_TOKEN }}
+          report_type: test_results
 
-      - uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
+      - uses: codecov/codecov-action@1af58845a975a7985b0beb0cbe6fbbb71a41dbad # v5.5.3
         with:
           working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}
           files: Library/Homebrew/test/coverage/coverage.xml
@@ -326,7 +336,7 @@ jobs:
             container: ghcr.io/homebrew/ubuntu24.04:latest
           - name: test-bot (Linux x86_64)
             runs-on: ubuntu-latest
-            container: ghcr.io/homebrew/ubuntu22.04:main
+            container: ghcr.io/homebrew/brew:main
           # Use Debian Old Stable for testing Homebrew's glibc support.
           - name: test-bot (Linux Homebrew glibc)
             runs-on: ubuntu-latest
@@ -352,6 +362,7 @@ jobs:
             file \
             g++ \
             git-core \
+            jq \
             less \
             locales \
             make \
@@ -380,6 +391,7 @@ jobs:
       - uses: Homebrew/actions/cache-homebrew-prefix@main
         with:
           install: gnu-tar
+          workflow-key: test-bot
           uninstall: true
 
       - name: Setup environment variables
@@ -472,7 +484,7 @@ jobs:
 
       - name: Cache Homebrew Bundler RubyGems
         id: cache
-        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: ${{ steps.set-up-homebrew.outputs.gems-path }}
           key: ${{ runner.os }}-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}

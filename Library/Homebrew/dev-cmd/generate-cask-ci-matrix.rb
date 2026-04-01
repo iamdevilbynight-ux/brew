@@ -17,7 +17,7 @@ module Homebrew
         { symbol: :sequoia, name: "macos-15-intel", arch: :intel } => 1.0,
       }.freeze, T::Hash[T::Hash[Symbol, T.any(Symbol, String)], Float])
       X86_LINUX_RUNNERS = T.let({
-        { symbol: :linux, name: "ubuntu-22.04", arch: :intel } => 1.0,
+        { symbol: :linux, name: "ubuntu-latest", arch: :intel } => 1.0,
       }.freeze, T::Hash[T::Hash[Symbol, T.any(Symbol, String)], Float])
       ARM_MACOS_RUNNERS = T.let({
         { symbol: :sonoma,  name: "macos-14", arch: :arm } => 0.0,
@@ -25,7 +25,7 @@ module Homebrew
         { symbol: :tahoe,   name: "macos-26", arch: :arm } => 1.0,
       }.freeze, T::Hash[T::Hash[Symbol, T.any(Symbol, String)], Float])
       ARM_LINUX_RUNNERS = T.let({
-        { symbol: :linux, name: "ubuntu-22.04-arm", arch: :arm } => 1.0,
+        { symbol: :linux, name: OS::LINUX_CI_ARM_RUNNER, arch: :arm } => 1.0,
       }.freeze, T::Hash[T::Hash[Symbol, T.any(Symbol, String)], Float])
       MACOS_RUNNERS = T.let(X86_MACOS_RUNNERS.merge(ARM_MACOS_RUNNERS).freeze,
                             T::Hash[T::Hash[Symbol, T.any(Symbol, String)], Float])
@@ -263,6 +263,7 @@ module Homebrew
           if labels.include?("ci-skip-repository")
             audit_exceptions << %w[github_repository github_prerelease_version
                                    gitlab_repository gitlab_prerelease_version
+                                   forgejo_repository forgejo_prerelease_version
                                    bitbucket_repository]
           end
 
@@ -299,7 +300,7 @@ module Homebrew
 
             if runner.fetch(:symbol) == :linux
               runner_output[:container] = {
-                image:   "ghcr.io/homebrew/ubuntu22.04:main",
+                image:   "ghcr.io/homebrew/brew:main",
                 options: "--user=linuxbrew",
               }
             end

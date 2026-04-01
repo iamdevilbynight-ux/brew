@@ -454,6 +454,28 @@ module Homebrew
       EOS
     end
 
+    sig { void }
+    def audit_node_modules
+      return unless @core_tap
+
+      node_modules = formula.libexec/"lib/node_modules"
+      return unless node_modules.directory?
+
+      incompatible_license_packages = %w[
+        @anthropic-ai/claude-agent-sdk
+      ]
+
+      incompatible_license_packages.each do |package|
+        # Search for package in all nested node_modules. Also including dot match for .pnpm hoisted packages
+        next if node_modules.glob("{**/node_modules/,}#{package}/", File::FNM_DOTMATCH).empty?
+
+        problem <<~EOS
+          Formula #{formula.name} uses #{package} which has an incompatible license.
+          All installed npm dependencies must satisfy #{Formatter.url("https://docs.brew.sh/License-Guidelines")}
+        EOS
+      end
+    end
+
     def audit_conflicts
       tap = formula.tap
       formula.conflicts.each do |conflict|
@@ -1079,15 +1101,6 @@ module Homebrew
       problem error if error
     end
 
-    def audit_no_autobump
-      return if formula.autobump?
-
-      return unless @new_formula_inclusive
-
-      error = SharedAudits.no_autobump_new_package_message(formula.no_autobump_message)
-      new_formula_problem error if error
-    end
-
     def quote_dep(dep)
       dep.is_a?(Symbol) ? dep.inspect : "'#{dep}'"
     end
@@ -1131,7 +1144,7 @@ module Homebrew
 
     def linux_only_gcc_dep?(formula)
       odie "`#linux_only_gcc_dep?` works only on Linux!" if Homebrew::SimulateSystem.simulating_or_running_on_macos?
-      return false if formula.deps.map(&:name).exclude?("gcc")
+      return false if formula.deps.none? { |dep| dep.name == "gcc" && !dep.implicit? }
 
       variations = formula.to_hash_with_variations["variations"]
       # The formula has no variations, so all OS-version-arch triples depend on GCC.

@@ -1,3 +1,4 @@
+# typed: false
 # frozen_string_literal: true
 
 require "bundle"
@@ -37,19 +38,6 @@ RSpec.describe Homebrew::Bundle do
         .with("#{HOMEBREW_LIBRARY}/Taps/homebrew/homebrew-cask")
         .and_return(true)
       expect(described_class.cask_installed?).to be(true)
-    end
-  end
-
-  context "when checking for mas", :needs_macos do
-    before do
-      described_class.instance_variable_set(:@mas_installed, nil)
-      described_class.instance_variable_set(:@which_mas, nil)
-    end
-
-    it "finds it when present" do
-      allow(described_class).to receive(:which).with("mas",
-                                                     ORIGINAL_PATHS).and_return(Pathname("/opt/homebrew/bin/mas"))
-      expect(described_class.mas_installed?).to be(true)
     end
   end
 

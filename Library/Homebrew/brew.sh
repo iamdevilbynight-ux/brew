@@ -54,13 +54,6 @@ then
   HOMEBREW_DEFAULT_CACHE="${HOME}/Library/Caches/Homebrew"
   HOMEBREW_DEFAULT_LOGS="${HOME}/Library/Logs/Homebrew"
   HOMEBREW_DEFAULT_TEMP="/private/tmp"
-
-  HOMEBREW_MACOS_VERSION="$(/usr/bin/sw_vers -productVersion)"
-
-  IFS=. read -r -a MACOS_VERSION_ARRAY < <(printf '%s' "${HOMEBREW_MACOS_VERSION}")
-  printf -v HOMEBREW_MACOS_VERSION_NUMERIC "%02d%02d%02d" "${MACOS_VERSION_ARRAY[@]}"
-
-  unset MACOS_VERSION_ARRAY
 else
   CACHE_HOME="${HOMEBREW_XDG_CACHE_HOME:-${HOME}/.cache}"
   HOMEBREW_DEFAULT_CACHE="${CACHE_HOME}/Homebrew"
@@ -120,6 +113,17 @@ HOMEBREW_TEMP="${HOMEBREW_TEMP:-${HOMEBREW_DEFAULT_TEMP}}"
 if [[ ! -w "${HOMEBREW_TEMP}" ]]
 then
   HOMEBREW_TEMP="${HOMEBREW_DEFAULT_TEMP}"
+fi
+
+# brew shellenv needs HOMEBREW_MACOS_VERSION_NUMERIC
+if [[ -n "${HOMEBREW_MACOS}" ]]
+then
+  HOMEBREW_MACOS_VERSION="$(/usr/bin/sw_vers -productVersion)"
+
+  IFS=. read -r -a MACOS_VERSION_ARRAY < <(printf '%s' "${HOMEBREW_MACOS_VERSION}")
+  printf -v HOMEBREW_MACOS_VERSION_NUMERIC "%02d%02d%02d" "${MACOS_VERSION_ARRAY[@]}"
+
+  unset MACOS_VERSION_ARRAY
 fi
 
 # commands that take a single or no arguments.
@@ -201,8 +205,11 @@ esac
 
 # Check `HOMEBREW_FORCE_BREW_WRAPPER` for all non-trivial commands
 # (i.e. not defined above this line e.g. formulae or --cellar).
-source "${HOMEBREW_LIBRARY}/Homebrew/utils/wrapper.sh"
-check-brew-wrapper "$1"
+if [[ -n "${HOMEBREW_FORCE_BREW_WRAPPER:-}" ]]
+then
+  source "${HOMEBREW_LIBRARY}/Homebrew/utils/wrapper.sh"
+  check-brew-wrapper "$1"
+fi
 
 # commands that take a single or no arguments and need to write to HOMEBREW_PREFIX.
 # HOMEBREW_LIBRARY set by bin/brew
@@ -277,6 +284,44 @@ check-array-membership() {
   else
     return 1
   fi
+}
+
+rust-frontend-enabled() {
+  if [[ -z "${HOMEBREW_DEVELOPER:-}" ]]
+  then
+    return 1
+  elif [[ -z "${HOMEBREW_EXPERIMENTAL_RUST_FRONTEND:-}" ]]
+  then
+    return 1
+  fi
+
+  if [[ -n "${HOMEBREW_NO_INSTALL_FROM_API:-}" ]]
+  then
+    return 1
+  fi
+
+  case "${HOMEBREW_COMMAND}" in
+    fetch | search | info | list | install | reinstall | update | upgrade | uninstall) ;;
+    *) return 1 ;;
+  esac
+
+  if [[ -n "${HOMEBREW_MACOS}" ]]
+  then
+    if [[ "${HOMEBREW_PROCESSOR}" != "arm64" ]]
+    then
+      return 1
+    fi
+  elif [[ -n "${HOMEBREW_LINUX}" ]]
+  then
+    if [[ "${HOMEBREW_PROCESSOR}" != "arm64" && "${HOMEBREW_PROCESSOR}" != "x86_64" ]]
+    then
+      return 1
+    fi
+  else
+    return 1
+  fi
+
+  return 0
 }
 
 # These variables are set from various Homebrew scripts.
@@ -498,7 +543,6 @@ setup_git() {
   fi
 }
 
-setup_curl
 setup_git
 
 GIT_DESCRIBE_CACHE="${HOMEBREW_REPOSITORY}/.git/describe-cache"
@@ -583,6 +627,11 @@ case "$1" in
     exit 0
     ;;
 esac
+
+setup_curl
+
+HOMEBREW_API_DEFAULT_DOMAIN="https://formulae.brew.sh/api"
+HOMEBREW_BOTTLE_DEFAULT_DOMAIN="https://ghcr.io/v2/homebrew/core"
 
 # TODO: bump version when new macOS is released or announced and update references in:
 # - docs/Installation.md
@@ -753,9 +802,6 @@ then
   unset HOMEBREW_BOTTLE_DOMAIN
 fi
 
-HOMEBREW_API_DEFAULT_DOMAIN="https://formulae.brew.sh/api"
-HOMEBREW_BOTTLE_DEFAULT_DOMAIN="https://ghcr.io/v2/homebrew/core"
-
 HOMEBREW_USER_AGENT="${HOMEBREW_PRODUCT}/${HOMEBREW_USER_AGENT_VERSION} (${HOMEBREW_SYSTEM}; ${HOMEBREW_PROCESSOR} ${HOMEBREW_OS_USER_AGENT_VERSION})"
 curl_version_output="$(curl --version 2>/dev/null)"
 curl_name_and_version="${curl_version_output%% (*}"
@@ -882,6 +928,25 @@ case "${HOMEBREW_COMMAND}" in
   lc) HOMEBREW_COMMAND="livecheck" ;;
   tc) HOMEBREW_COMMAND="typecheck" ;;
 esac
+if [[ ("${HOMEBREW_COMMAND}" == "audit" || "${HOMEBREW_COMMAND}" == "lgtm" ||
+      "${HOMEBREW_COMMAND}" == "style" || "${HOMEBREW_COMMAND}" == "tests") &&
+      "${HOMEBREW_CACHE}" != "${HOMEBREW_REPOSITORY}/tmp/cache" ]]
+then
+  if [[ -d "${HOMEBREW_CACHE}" && ! -w "${HOMEBREW_CACHE}" ]] ||
+     [[ ! -d "${HOMEBREW_CACHE}" && ! -w "${HOMEBREW_CACHE%/*}" ]]
+  then
+    original_cache="${HOMEBREW_CACHE}"
+    HOMEBREW_CACHE="${HOMEBREW_REPOSITORY}/tmp/cache"
+    printf 'Warning: HOMEBREW_CACHE is not writable at %s; using %s for Homebrew cache files instead.\n' \
+      "${original_cache}" "${HOMEBREW_CACHE}" >&2
+    mkdir -p "${HOMEBREW_CACHE}/api"
+    if [[ -d "${original_cache}/api" ]]
+    then
+      cp -R "${original_cache}/api/." "${HOMEBREW_CACHE}/api/" &>/dev/null || true
+    fi
+    export HOMEBREW_CACHE
+  fi
+fi
 
 # Set HOMEBREW_DEV_CMD_RUN for users who have run a development command.
 # This makes them behave like HOMEBREW_DEVELOPERs for brew update.
@@ -1065,6 +1130,34 @@ unset SUDO
 
 # Remove internal variables
 unset HOMEBREW_INTERNAL_ALLOW_PACKAGES_FROM_PATHS
+
+if rust-frontend-enabled
+then
+  HOMEBREW_RUST_BREW_FILE="${HOMEBREW_LIBRARY}/Homebrew/vendor/brew-rs/brew-rs"
+  source "${HOMEBREW_LIBRARY}/Homebrew/cmd/vendor-install.sh"
+  if ! brew-rs-vendor-up-to-date
+  then
+    cargo_path="$(PATH="${HOMEBREW_PATH:-${PATH}}" command -v cargo)"
+    if [[ ! -x "${cargo_path}" ]]
+    then
+      opoo "HOMEBREW_EXPERIMENTAL_RUST_FRONTEND is set but cargo from the rust formula was not found; falling back to the Ruby frontend."
+    else
+      homebrew-vendor-install brew-rs || exit $?
+      # Close the vendor-install lock FD opened by the sourced helper.
+      exec 200>&-
+    fi
+  fi
+
+  if [[ -x "${HOMEBREW_RUST_BREW_FILE}" ]]
+  then
+    [[ "${HOMEBREW_ARG_COUNT}" -gt 0 ]] && set -- "${HOMEBREW_COMMAND}" "$@"
+
+    auto-update "$@"
+
+    opoo "using the experimental brew-rs Rust frontend."
+    exec "${HOMEBREW_RUST_BREW_FILE}" "$@"
+  fi
+fi
 
 if [[ -n "${HOMEBREW_BASH_COMMAND}" ]]
 then

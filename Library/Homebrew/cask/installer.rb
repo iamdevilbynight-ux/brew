@@ -333,6 +333,7 @@ on_request: true)
           artifact,
           T.any(
             Artifact::AbstractFlightBlock,
+            Artifact::GeneratedCompletion,
             Artifact::Installer,
             Artifact::KeyboardLayout,
             Artifact::Mdimporter,
@@ -510,8 +511,22 @@ on_request: true)
 
       return if @cask.source.blank?
 
-      extension = @cask.loaded_from_api? ? "json" : "rb"
-      (metadata_subdir/"#{@cask.token}.#{extension}").write @cask.source
+      extension = if @cask.loaded_from_internal_api?
+        "internal.json"
+      elsif @cask.loaded_from_api?
+        "json"
+      else
+        "rb"
+      end
+
+      source = if @cask.loaded_from_internal_api? && (api_source = @cask.api_source)
+        api_source = api_source.merge({ "tap_git_head" => @cask.tap_git_head })
+        JSON.pretty_generate(api_source)
+      else
+        @cask.source
+      end
+
+      (metadata_subdir/"#{@cask.token}.#{extension}").write source
       FileUtils.rm_r(old_savedir) if old_savedir
     end
 
@@ -600,6 +615,7 @@ on_request: true)
             artifact,
             T.any(
               Artifact::AbstractFlightBlock,
+              Artifact::GeneratedCompletion,
               Artifact::KeyboardLayout,
               Artifact::Moved,
               Artifact::Qlplugin,

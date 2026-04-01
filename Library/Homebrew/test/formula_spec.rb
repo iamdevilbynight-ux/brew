@@ -1,3 +1,4 @@
+# typed: false
 # frozen_string_literal: true
 
 require "test/support/fixtures/testball"
@@ -2347,6 +2348,16 @@ RSpec.describe Formula do
         expect(f.specified_path).to eq(Homebrew::API::Formula.cached_json_file_path)
       end
     end
+
+    context "when loaded from the internal API" do
+      before do
+        allow(f).to receive(:loaded_from_internal_api?).and_return(true)
+      end
+
+      it "returns the internal API path" do
+        expect(f.specified_path).to eq(Homebrew::API::Internal.cached_formula_json_file_path)
+      end
+    end
   end
 
   describe "#preserve_rpath" do
@@ -2475,6 +2486,18 @@ RSpec.describe Formula do
         expect(f.disabled?).to be(true)
         expect(f.disable_reason).to be(:unsupported)
       end
+    end
+  end
+
+  describe ".all" do
+    it "skips formulas that raise FormulaSpecificationError" do
+      allow(described_class).to receive_messages(core_names: ["testball"], tap_files: [])
+      allow(Formulary).to receive(:factory).with("testball").and_raise(
+        FormulaSpecificationError, "testball: formula requires at least a URL"
+      )
+
+      expect { described_class.all(eval_all: true) }.not_to raise_error
+      expect(described_class.all(eval_all: true)).to eq([])
     end
   end
 end

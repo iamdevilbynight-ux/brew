@@ -14,6 +14,7 @@ require "utils/gzip"
 require "utils/inreplace"
 require "utils/shebang"
 require "utils/shell"
+require "utils/shell_completion"
 require "utils/git_repository"
 require "build_environment"
 require "build_options"
@@ -446,6 +447,7 @@ class Formula
   # The path that was specified to find this formula.
   sig { returns(T.nilable(Pathname)) }
   def specified_path
+    return Homebrew::API::Internal.cached_formula_json_file_path if loaded_from_internal_api?
     return Homebrew::API::Formula.cached_json_file_path if loaded_from_api?
     return alias_path if alias_path&.exist?
 
@@ -589,6 +591,11 @@ class Formula
   # @!method loaded_from_api?
   # @see .loaded_from_api?
   delegate loaded_from_api?: :"self.class"
+
+  # Whether this formula was loaded using the internal formulae.brew.sh API.
+  # @!method loaded_from_internal_api?
+  # @see .loaded_from_internal_api?
+  delegate loaded_from_internal_api?: :"self.class"
 
   # The API source data used to load this formula.
   # Returns `nil` if the formula was not loaded from the API.
@@ -2407,7 +2414,7 @@ class Formula
   def generate_completions_from_executable(*commands,
                                            base_name: nil,
                                            shell_parameter_format: nil,
-                                           shells: default_completion_shells(shell_parameter_format))
+                                           shells: Utils::ShellCompletion.default_completion_shells(shell_parameter_format))
     executable = commands.first.to_s
     base_name ||= File.basename(executable) if executable.start_with?(bin.to_s, sbin.to_s)
     base_name ||= name
@@ -2423,75 +2430,17 @@ class Formula
       popen_read_env = { "SHELL" => shell.to_s }
       script_path = completion_script_path_map[shell]
 
-      shell_parameter = completion_shell_parameter(
+      shell_parameter = Utils::ShellCompletion.completion_shell_parameter(
         shell_parameter_format,
         shell,
         executable,
         popen_read_env,
       )
 
-      popen_read_args = %w[]
-      popen_read_args << commands
-      popen_read_args << shell_parameter if shell_parameter.present?
-      popen_read_args.flatten!
-
-      popen_read_options = {}
-      popen_read_options[:err] = :err unless ENV["HOMEBREW_STDERR"]
-
       script_path.dirname.mkpath
-      script_path.write Utils.safe_popen_read(popen_read_env, *popen_read_args, **popen_read_options)
+      script_path.write Utils::ShellCompletion.generate_completion_output(commands, shell_parameter, popen_read_env)
     end
   end
-
-  sig { params(format: T.nilable(T.any(Symbol, String))).returns(T::Array[Symbol]) }
-  def default_completion_shells(format)
-    case format
-    when :cobra, :typer
-      [:bash, :zsh, :fish, :pwsh]
-    else
-      [:bash, :zsh, :fish]
-    end
-  end
-  private :default_completion_shells
-
-  sig {
-    params(
-      format:     T.nilable(T.any(Symbol, String)),
-      shell:      Symbol,
-      executable: String,
-      env:        T::Hash[String, String],
-    ).returns(T.nilable(T.any(String, T::Array[String])))
-  }
-  def completion_shell_parameter(format, shell, executable, env)
-    # Go's cobra and Rust's clap accept "powershell".
-    shell_parameter = (shell == :pwsh) ? "powershell" : shell.to_s
-
-    case format
-    when nil
-      shell_parameter
-    when :arg
-      "--shell=#{shell_parameter}"
-    when :clap
-      env["COMPLETE"] = shell_parameter
-      nil
-    when :click
-      prog_name = File.basename(executable).upcase.tr("-", "_")
-      env["_#{prog_name}_COMPLETE"] = "#{shell_parameter}_source"
-      nil
-    when :cobra
-      ["completion", shell_parameter]
-    when :flag
-      "--#{shell_parameter}"
-    when :none
-      nil
-    when :typer
-      env["_TYPER_COMPLETE_TEST_DISABLE_SHELL_DETECTION"] = "1"
-      ["--show-completion", shell_parameter]
-    else
-      "#{format}#{shell}"
-    end
-  end
-  private :completion_shell_parameter
 
   # An array of all core {Formula} names.
   sig { returns(T::Array[String]) }
@@ -2535,7 +2484,7 @@ class Formula
 
     (core_names + tap_files).filter_map do |name_or_file|
       Formulary.factory(name_or_file)
-    rescue FormulaUnavailableError, FormulaUnreadableError => e
+    rescue FormulaUnavailableError, FormulaUnreadableError, FormulaSpecificationError => e
       # Don't let one broken formula break commands. But do complain.
       onoe "Failed to import: #{name_or_file}"
       $stderr.puts e
@@ -2803,16 +2752,25 @@ class Formula
   end
 
   # Returns a list of formulae depended on by this formula that aren't
-  # installed.
+  # installed. Only trusts tab data for dependency information; when the tab
+  # has no runtime dependency data (nil or empty), returns empty rather
+  # than falling back to formula definitions.
+  # This prevents stale or missing tab data from incorrectly blocking
+  # uninstalls.
   sig { params(hide: T::Array[String]).returns(T::Array[Dependency]) }
   def missing_dependencies(hide: [])
-    runtime_dependencies(read_from_tab: true, undeclared: true).select do |f|
-      hide.include?(f.name) || f.to_installed_formula.installed_prefixes.none?
+    tab_deps = any_installed_keg&.runtime_dependencies
+    return [] if tab_deps.blank?
+
+    tab_deps.filter_map do |d|
+      full_name = d["full_name"]
+      next if full_name.blank?
+
+      dep = Dependency.new(full_name)
+      dep if hide.include?(dep.name) || dep.to_installed_formula.installed_prefixes.none?
+    rescue FormulaUnavailableError
+      nil
     end
-  # If we're still getting unavailable formulae at this stage the best we can
-  # do is just return no results.
-  rescue FormulaUnavailableError
-    []
   end
 
   sig { returns(T.nilable(String)) }
@@ -2938,6 +2896,10 @@ class Formula
 
   sig { returns(T::Hash[String, T.untyped]) }
   def to_hash_with_variations
+    if loaded_from_internal_api?
+      raise UsageError, "Cannot call #to_hash_with_variations on formulae loaded from the internal API"
+    end
+
     hash = to_hash
 
     # Take from API, merging in local install status.
@@ -3688,6 +3650,7 @@ class Formula
         @skip_clean_paths = T.let(Set.new, T.nilable(T::Set[T.any(String, Symbol)]))
         @link_overwrite_paths = T.let(Set.new, T.nilable(T::Set[String]))
         @loaded_from_api = T.let(false, T.nilable(T::Boolean))
+        @loaded_from_internal_api = T.let(false, T.nilable(T::Boolean))
         @api_source = T.let(nil, T.nilable(T::Hash[String, T.untyped]))
         @on_system_blocks_exist = T.let(false, T.nilable(T::Boolean))
         @network_access_allowed = T.let(SUPPORTED_NETWORK_ACCESS_PHASES.to_h do |phase|
@@ -3715,6 +3678,10 @@ class Formula
     # Whether this formula was loaded using the formulae.brew.sh API.
     sig { returns(T::Boolean) }
     def loaded_from_api? = !!@loaded_from_api
+
+    # Whether this formula was loaded using the internal formulae.brew.sh API.
+    sig { returns(T::Boolean) }
+    def loaded_from_internal_api? = !!@loaded_from_internal_api
 
     # Whether this formula was loaded using the formulae.brew.sh API.
     sig { returns(T.nilable(T::Hash[String, T.untyped])) }
@@ -4663,6 +4630,8 @@ class Formula
       if because.is_a?(Symbol) && !NO_AUTOBUMP_REASONS_LIST.key?(because)
         raise ArgumentError, "'because' argument should use valid symbol or a string!"
       end
+
+      odeprecated "no_autobump! because: :requires_manual_review" if because == :requires_manual_review
 
       @no_autobump_defined = T.let(true, T.nilable(T::Boolean))
       @no_autobump_message = T.let(because, T.nilable(T.any(String, Symbol)))

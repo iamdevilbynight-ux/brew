@@ -1,18 +1,29 @@
 # typed: true # rubocop:todo Sorbet/StrictSigil
 # frozen_string_literal: true
 
+require "bundle/package_type"
+
 module Homebrew
   module Bundle
     class Dsl
       class Entry
-        attr_reader :type, :name, :options
+        sig { returns(Symbol) }
+        attr_reader :type
 
+        sig { returns(String) }
+        attr_reader :name
+
+        sig { returns(Homebrew::Bundle::EntryOptions) }
+        attr_reader :options
+
+        sig { params(type: Symbol, name: String, options: Homebrew::Bundle::EntryOptions).void }
         def initialize(type, name, options = {})
           @type = type
           @name = name
           @options = options
         end
 
+        sig { returns(String) }
         def to_s
           name
         end
@@ -63,60 +74,6 @@ module Homebrew
         @entries << Entry.new(:cask, name, options)
       end
 
-      def mas(name, options = {})
-        id = options[:id]
-        raise "name(#{name.inspect}) should be a String object" unless name.is_a? String
-        raise "options[:id](#{id}) should be an Integer object" unless id.is_a? Integer
-
-        @entries << Entry.new(:mas, name, id:)
-      end
-
-      def vscode(name)
-        raise "name(#{name.inspect}) should be a String object" unless name.is_a? String
-
-        @entries << Entry.new(:vscode, name)
-      end
-
-      sig { params(name: String).void }
-      def go(name)
-        @entries << Entry.new(:go, name)
-      end
-
-      sig { params(name: String).void }
-      def cargo(name)
-        @entries << Entry.new(:cargo, name)
-      end
-
-      sig { params(name: String, options: T::Hash[Symbol, T.untyped]).void }
-      def uv(name, options = {})
-        unknown_options = options.keys - [:with]
-        raise "unknown options(#{unknown_options.inspect}) for uv" if unknown_options.present?
-
-        with = options[:with]
-        if with && (!with.is_a?(Array) || with.any? { |requirement| !requirement.is_a?(String) })
-          raise "options[:with](#{with.inspect}) should be an Array of String objects"
-        end
-
-        normalized_options = {}
-        normalized_with = Array(with).map(&:strip).reject(&:empty?).uniq.sort
-        normalized_options[:with] = normalized_with if normalized_with.present?
-
-        @entries << Entry.new(:uv, name, normalized_options)
-      end
-
-      sig { params(name: String, options: T::Hash[Symbol, String]).void }
-      def flatpak(name, options = {})
-        # Validate: url: can only be used with a named remote (not a URL remote)
-        if options[:url] && options[:remote]&.start_with?("http://", "https://")
-          raise "url: parameter cannot be used when remote: is already a URL"
-        end
-
-        # Default remote to "flathub"
-        options[:remote] ||= "flathub"
-
-        @entries << Entry.new(:flatpak, name, options)
-      end
-
       def tap(name, clone_target = nil, options = {})
         raise "name(#{name.inspect}) should be a String object" unless name.is_a? String
         if clone_target && !clone_target.is_a?(String)
@@ -138,8 +95,10 @@ module Homebrew
           Regexp.last_match(1)
         elsif name =~ HOMEBREW_TAP_FORMULA_REGEX
           user = Regexp.last_match(1)
-          repo = T.must(Regexp.last_match(2))
+          repo = Regexp.last_match(2)
           name = Regexp.last_match(3)
+          return name if repo.nil? || name.nil?
+
           "#{user}/#{repo.sub("homebrew-", "")}/#{name}"
         else
           name
@@ -159,6 +118,39 @@ module Homebrew
         name = name.split("/").last if name.include?("/")
         name.downcase
       end
+
+      def method_missing(method_name, *args, **options, &block)
+        extension = Homebrew::Bundle.extension(method_name)
+        return super if extension.nil?
+        raise ArgumentError, "blocks are not supported for #{method_name}" if block
+
+        # Extension DSL entries follow the existing Brewfile calling convention:
+        # a required name plus an optional options hash, passed positionally,
+        # with keywords, or both.
+        unless (1..2).cover?(args.length)
+          raise ArgumentError,
+                "wrong number of arguments (given #{args.length}, expected 1..2)"
+        end
+
+        positional_options = {}
+        if args.length == 2
+          positional_options = args[1]
+          unless positional_options.is_a? Hash
+            raise ArgumentError,
+                  "options(#{positional_options.inspect}) should be a Hash object"
+          end
+        end
+
+        @entries << extension.entry(args.first, positional_options.merge(options))
+      end
+
+      def respond_to_missing?(method_name, include_private = false)
+        Homebrew::Bundle.extension(method_name).present? || super
+      end
     end
   end
 end
+
+# Load extensions after `Dsl` is defined because their `entry` methods build
+# `Dsl::Entry` instances.
+require "bundle/extensions"

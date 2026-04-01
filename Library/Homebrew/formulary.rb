@@ -208,9 +208,10 @@ module Formulary
       api_source:     T::Hash[String, T.untyped],
       tap_git_head:   String,
       flags:          T::Array[String],
+      internal_api:   T::Boolean,
     ).returns(T.class_of(Formula))
   }
-  def self.load_formula_from_struct!(name, formula_struct, api_source:, tap_git_head:, flags:)
+  def self.load_formula_from_struct!(name, formula_struct, api_source:, tap_git_head:, flags:, internal_api: false)
     namespace = :"FormulaNamespaceAPI#{namespace_key(api_source.to_json)}"
 
     mod = Module.new
@@ -224,6 +225,7 @@ module Formulary
 
     klass = Class.new(::Formula) do
       @loaded_from_api = T.let(true, T.nilable(T::Boolean))
+      @loaded_from_internal_api = T.let(internal_api, T.nilable(T::Boolean))
       @api_source = T.let(api_source, T.nilable(T::Hash[String, T.untyped]))
 
       desc formula_struct.desc
@@ -499,7 +501,19 @@ module Formulary
     def initialize(bottle_name, warn: false)
       @bottle_path = T.let(Pathname(bottle_name).realpath, Pathname)
       name, full_name = Utils::Bottles.resolve_formula_names(@bottle_path)
-      super name, Formulary.path(full_name)
+      tap, = Tap.with_formula_name(full_name)
+
+      # We might not have tap information with --only-json-tab bottles.
+      # In this scenario we make a best effort guess, assuming Homebrew/core
+      # unless we find it in another tap we have installed.
+      fallback_path = Formulary.path(full_name)
+      tap ||= Tap.from_path(fallback_path)
+
+      # Mimic a Cellar path to simulate relaxed deprecation behaviour shared with postinstalls.
+      version = Utils::Bottles.resolve_version(@bottle_path)
+      @cellar_formula_path = T.let(HOMEBREW_CELLAR/name/version/".brew"/"#{name}.rb", Pathname)
+
+      super name, fallback_path, tap:
     end
 
     sig {
@@ -514,8 +528,8 @@ module Formulary
     def get_formula(spec, alias_path: nil, force_bottle: false, flags: [], ignore_errors: false)
       formula = begin
         contents = Utils::Bottles.formula_contents(@bottle_path, name:)
-        Formulary.from_contents(name, path, contents, spec, force_bottle:,
-                                flags:, ignore_errors:)
+        Formulary.from_contents(name, @cellar_formula_path, contents, spec,
+                                tap:, force_bottle:, flags:, ignore_errors:)
       rescue FormulaUnreadableError => e
         opoo <<~EOS
           Unreadable formula in #{@bottle_path}:
@@ -816,10 +830,10 @@ module Formulary
     sig { returns(String) }
     attr_reader :contents
 
-    sig { params(name: String, path: Pathname, contents: String).void }
-    def initialize(name, path, contents)
+    sig { params(name: String, path: Pathname, contents: String, tap: T.nilable(Tap)).void }
+    def initialize(name, path, contents, tap: nil)
       @contents = contents
-      super name, path
+      super name, path, tap:
     end
 
     sig { override.params(flags: T::Array[String], ignore_errors: T::Boolean).returns(T.class_of(Formula)) }
@@ -893,7 +907,8 @@ module Formulary
 
       raise FormulaUnavailableError, name if api_source.nil?
 
-      Formulary.load_formula_from_struct!(name, formula_struct, api_source:, tap_git_head:, flags:)
+      Formulary.load_formula_from_struct!(name, formula_struct, api_source:, tap_git_head:, flags:,
+                                          internal_api: true)
     end
   end
 
@@ -1052,6 +1067,7 @@ module Formulary
       contents:      String,
       spec:          Symbol,
       alias_path:    T.nilable(Pathname),
+      tap:           T.nilable(Tap),
       force_bottle:  T::Boolean,
       flags:         T::Array[String],
       ignore_errors: T::Boolean,
@@ -1063,11 +1079,12 @@ module Formulary
     contents,
     spec = :stable,
     alias_path: nil,
+    tap: nil,
     force_bottle: false,
     flags: [],
     ignore_errors: false
   )
-    FormulaContentsLoader.new(name, path, contents)
+    FormulaContentsLoader.new(name, path, contents, tap:)
                          .get_formula(spec, alias_path:, force_bottle:, flags:, ignore_errors:)
   end
 

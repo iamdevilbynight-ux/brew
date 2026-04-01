@@ -1,3 +1,4 @@
+# typed: false
 # frozen_string_literal: true
 
 require "exceptions"
@@ -193,7 +194,7 @@ RSpec.describe "Exception" do
     context "when the file does not exist" do
       subject(:error) { described_class.new("file:///tmp/foo") }
 
-      it(:to_s) { expect(error.to_s).to eq("File does not exist: /tmp/foo") }
+      it(:to_s) { expect(error.to_s).to eq("File cannot be read: /tmp/foo") }
     end
 
     context "when the download failed" do

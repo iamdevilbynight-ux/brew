@@ -140,8 +140,8 @@ module Cask
 
       created_download_queue = T.let(false, T::Boolean)
       download_queue ||= if !dry_run && !skip_prefetch
-         created_download_queue = true
-         Homebrew::DownloadQueue.new(pour: true)
+        created_download_queue = true
+        Homebrew::DownloadQueue.new(pour: true)
       end
 
       if !dry_run && !skip_prefetch
@@ -257,6 +257,7 @@ module Cask
 
       begin
         oh1 "Upgrading #{Formatter.identifier(old_cask)}"
+        puts "  #{old_cask.version} -> #{new_cask.version}"
 
         # Start new cask's installation steps
         new_cask_installer.check_conflicts

@@ -40,69 +40,6 @@ module Homebrew
       end
 
       sig { returns(T::Boolean) }
-      def mas_installed?
-        @mas_installed ||= which_mas.present?
-      end
-
-      sig { returns(T.nilable(Pathname)) }
-      def which_mas
-        @which_mas ||= which("mas", ORIGINAL_PATHS)
-      end
-
-      sig { returns(T::Boolean) }
-      def vscode_installed?
-        @vscode_installed ||= which_vscode.present?
-      end
-
-      sig { returns(T.nilable(Pathname)) }
-      def which_vscode
-        @which_vscode ||= which("code", ORIGINAL_PATHS)
-        @which_vscode ||= which("codium", ORIGINAL_PATHS)
-        @which_vscode ||= which("cursor", ORIGINAL_PATHS)
-        @which_vscode ||= which("code-insiders", ORIGINAL_PATHS)
-      end
-
-      sig { returns(T.nilable(Pathname)) }
-      def which_go
-        @which_go ||= which("go", ORIGINAL_PATHS)
-      end
-
-      sig { returns(T::Boolean) }
-      def go_installed?
-        @go_installed ||= which_go.present?
-      end
-
-      sig { returns(T.nilable(Pathname)) }
-      def which_cargo
-        @which_cargo ||= which("cargo", ORIGINAL_PATHS)
-      end
-
-      sig { returns(T::Boolean) }
-      def cargo_installed?
-        @cargo_installed ||= which_cargo.present?
-      end
-
-      sig { returns(T.nilable(Pathname)) }
-      def which_uv
-        @which_uv ||= which("uv", ORIGINAL_PATHS)
-      end
-
-      sig { returns(T::Boolean) }
-      def uv_installed?
-        @uv_installed ||= which_uv.present?
-      end
-
-      sig { returns(T.nilable(Pathname)) }
-      def which_flatpak
-        @which_flatpak ||= which("flatpak", ORIGINAL_PATHS)
-      end
-
-      sig { returns(T::Boolean) }
-      def flatpak_installed?
-        @flatpak_installed ||= which_flatpak.present?
-      end
-
-      sig { returns(T::Boolean) }
       def cask_installed?
         @cask_installed ||= File.directory?("#{HOMEBREW_PREFIX}/Caskroom") &&
                             (File.directory?("#{HOMEBREW_LIBRARY}/Taps/homebrew/homebrew-cask") ||
@@ -170,23 +107,21 @@ module Homebrew
         @formula_versions_from_env[formula_env_name]
       end
 
+      sig { returns(T.nilable(T::Hash[String, String])) }
+      def formula_versions_from_env_cache
+        @formula_versions_from_env
+      end
+
+      sig { params(formula_versions: T.nilable(T::Hash[String, String])).void }
+      def formula_versions_from_env_cache=(formula_versions)
+        @formula_versions_from_env = formula_versions
+      end
+
       sig { void }
       def prepend_pkgconf_path_if_needed!; end
 
       sig { void }
       def reset!
-        @which_mas = T.let(nil, T.nilable(Pathname))
-        @mas_installed = T.let(nil, T.nilable(T::Boolean))
-        @vscode_installed = T.let(nil, T.nilable(T::Boolean))
-        @which_vscode = T.let(nil, T.nilable(Pathname))
-        @which_go = T.let(nil, T.nilable(Pathname))
-        @go_installed = T.let(nil, T.nilable(T::Boolean))
-        @which_cargo = T.let(nil, T.nilable(Pathname))
-        @cargo_installed = T.let(nil, T.nilable(T::Boolean))
-        @which_uv = T.let(nil, T.nilable(Pathname))
-        @uv_installed = T.let(nil, T.nilable(T::Boolean))
-        @which_flatpak = T.let(nil, T.nilable(Pathname))
-        @flatpak_installed = T.let(nil, T.nilable(T::Boolean))
         @cask_installed = T.let(nil, T.nilable(T::Boolean))
         @formula_versions_from_env = T.let(nil, T.nilable(T::Hash[String, String]))
         @upgrade_formulae = T.let(nil, T.nilable(T::Array[String]))
